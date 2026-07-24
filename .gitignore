@@ -1,0 +1,8 @@
+# Secrets — never commit the real key
+.env
+
+# Go
+/livetennisapi-starter-go
+*.exe
+*.test
+*.out
