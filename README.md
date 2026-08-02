@@ -12,6 +12,9 @@ runs the polling counterpart. Its only dependency is a WebSocket library
 
 > **Requires an ULTRA key.** The WebSocket feed and the break-point signals are
 > ULTRA-tier only. Get a key at <https://livetennisapi.com/#pricing>.
+> No key yet? A **FREE** key (no card — <https://livetennisapi.com/subscribe/free>)
+> lets you explore the REST endpoints first, but this starter's WebSocket feed
+> still needs ULTRA.
 >
 > Needs **Go 1.23+**.
 
