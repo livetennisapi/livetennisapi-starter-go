@@ -43,7 +43,7 @@ func NewStrategy() *Strategy {
 // points stand out in the log.
 func (s *Strategy) OnScore(f ScoreFrame) {
 	if debugEnabled() {
-		log.Printf("score  match=%d  sets=%v  win_prob_p1=%s", f.MatchID, f.Sets, prob(f.WinProbP1))
+		log.Printf("score  match=%d  sets=%v  win_prob_p1=%s", f.MatchID, f.Score.Sets, prob(f.Score.WinProbP1))
 	}
 }
 

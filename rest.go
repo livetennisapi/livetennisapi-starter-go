@@ -64,6 +64,8 @@ func runREST(ctx context.Context, key string) error {
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("the API rejected this key (401); check LIVETENNISAPI_KEY")
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return rateLimitError(resp, body)
 	case resp.StatusCode != http.StatusOK:
 		return fmt.Errorf("GET /matches returned %d: %s", resp.StatusCode, body)
 	}
@@ -87,4 +89,36 @@ func runREST(ctx context.Context, key string) error {
 		log.Println(line)
 	}
 	return nil
+}
+
+// rateLimitError turns a 429 into an actionable message. Two flavours share
+// the status code, so switch on the body's error field: "rate_limited" is an
+// ordinary per-minute or per-day cap (wait it out — honour Retry-After; a
+// daily 429 also carries resets_at, the exact UTC instant the quota resets),
+// while "abuse_throttled" is a ~24h block for clients that chronically ignore
+// their caps — fix the polling/retry loop, don't retry harder.
+func rateLimitError(resp *http.Response, body []byte) error {
+	var e struct {
+		Error        string `json:"error"`
+		Scope        string `json:"scope"`     // "day" on a daily-cap 429
+		ResetsAt     string `json:"resets_at"` // daily 429 only
+		RetryAtEpoch int64  `json:"retry_at_epoch"`
+	}
+	_ = json.Unmarshal(body, &e)
+	if e.Error == "abuse_throttled" {
+		return fmt.Errorf(
+			"abuse_throttled (429): this key is blocked for ~24h for chronically exceeding its caps; fix the polling/retry loop (retry_at_epoch=%d)",
+			e.RetryAtEpoch)
+	}
+	msg := "rate_limited (429): over the per-minute cap"
+	if e.Scope == "day" {
+		msg = "rate_limited (429): the daily quota is used up"
+		if e.ResetsAt != "" {
+			msg += "; it resets at " + e.ResetsAt
+		}
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		msg += " — retry after " + ra + "s"
+	}
+	return fmt.Errorf("%s", msg)
 }

@@ -1,13 +1,15 @@
 // WebSocket live-score feed. ULTRA tier only.
 //
-// The feed pushes a "score" frame whenever a subscribed match's score changes,
-// plus a "ping" heartbeat. With signals=["break_point"] it also pushes a
-// "break_point" frame the instant a break point arises and a
-// "break_point_result" frame when it resolves.
+// The feed pushes a "score" frame whenever a subscribed match's score changes
+// (the payload nests under "score" and carries the ULTRA model fields
+// win_probability_p1 and danger), plus a "ping" heartbeat roughly every 15s.
+// With signals=["break_point"] it also pushes a "break_point" frame the instant
+// a break point arises and a "break_point_result" frame when it resolves.
 //
 // This starter keeps a single connection for clarity — a clear "here's the bot
-// loop", not a full SDK. Production code should add reconnect-with-backoff; the
-// official Python and JS SDKs do this for you.
+// loop", not a full SDK (the server allows at most 2 concurrent connections
+// per key). Production code should add reconnect-with-backoff; the official
+// Python and JS SDKs do this for you.
 package main
 
 import (
@@ -101,11 +103,11 @@ func stream(ctx context.Context, key string, h handler) error {
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
 
-	// Subscribe immediately — the server drops the socket if the frame is late.
-	// It keys off "topics" (+ optional "signals"); "action" is ignored but kept
-	// for forward compatibility. Swap topics to ["match:<id>"] for one match.
+	// Subscribe immediately — the server closes the socket if no subscribe
+	// frame arrives within ~15s. The frame is just {"topics": [...]} plus the
+	// optional "signals" list; anything else in it is ignored. Swap topics to
+	// ["match:<id>"] to follow one match.
 	sub, _ := json.Marshal(map[string]any{
-		"action":  "subscribe",
 		"topics":  []string{"live-scores"},
 		"signals": []string{"break_point"},
 	})

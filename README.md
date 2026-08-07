@@ -1,8 +1,12 @@
 # Live Tennis API — Break-Point Starter (Go)
 
+[![ci](https://github.com/livetennisapi/livetennisapi-starter-go/actions/workflows/ci.yml/badge.svg)](https://github.com/livetennisapi/livetennisapi-starter-go/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 A tiny, runnable app that reacts to **break points** on the
-[Live Tennis API](https://livetennisapi.com) live feed. It shows exactly where
-your trading logic goes — and it places **no real bets**.
+[Live Tennis API](https://livetennisapi.com) live feed — ATP, WTA, Challenger,
+ITF and juniors. It shows exactly where your trading logic goes — and it places
+**no real bets**.
 
 There is no official Go SDK, so this starter talks to the API directly: it opens
 the ULTRA WebSocket feed with `signals: ["break_point"]`, routes every frame to
@@ -76,20 +80,65 @@ assert the safety invariant: the execution seam refuses to place a real bet.
 REST base: `https://api.livetennisapi.com/api/public/v1`
 WebSocket: `wss://api.livetennisapi.com/api/public/v1/ws?token=<key>`
 
+Auth: `Authorization: Bearer twjp_…` (preferred) or an `X-API-Key` header on
+REST; the WebSocket carries the key as `?token=` because browser WebSocket
+clients cannot set headers.
+
 The subscribe frame this starter sends after connecting:
 
 ```json
-{ "action": "subscribe", "topics": ["live-scores"], "signals": ["break_point"] }
+{ "topics": ["live-scores"], "signals": ["break_point"] }
 ```
 
-Swap the topic to `["match:<id>"]` to follow one match. Frames it reacts to:
-`score`, `break_point`, `break_point_result` (`ping` and `subscribed` are
-ignored). See the
+The server keys off `topics` (plus the optional `signals` list) — nothing else
+belongs in the frame. Swap the topic to `["match:<id>"]` to follow one match.
+Frames it reacts to: `score`, `break_point`, `break_point_result` (the ~15s
+`ping` heartbeat and the `subscribed` ack are ignored). Every `score` frame
+nests its payload under `score` and carries the ULTRA model fields
+`win_probability_p1` and `danger` — a `null` there means the model had no
+output for that state, not that the feed withheld it. The feed allows at most
+**2 concurrent connections per key**. See the
 [WebSocket section of the API reference](https://docs.livetennisapi.com/reference.html#websocket).
 
 The REST example (`go run . -rest`) calls `GET /matches?status=live` and prints
 each live match's set score and (ULTRA) win probability — poll an endpoint like
-that on an interval for a bot that doesn't need the WebSocket.
+that on an interval for a bot that doesn't need the WebSocket. On a FREE key
+(100 requests/day) poll no faster than every 15 minutes; an always-on dashboard
+should run on BASIC or above.
+
+## Error handling
+
+- `401 unauthorized` — the key is wrong; check `LIVETENNISAPI_KEY`.
+- `403 upgrade_required` — the endpoint (or the WebSocket) is above your tier;
+  the body carries the upgrade URL. Never a silent empty result.
+- `429 rate_limited` — over the per-minute or per-day cap. Honour `Retry-After`;
+  a daily 429 also carries `resets_at`, the exact UTC instant your quota resets.
+- `429 abuse_throttled` — a ~24-hour block for clients that chronically ignore
+  their caps; the body's `retry_at_epoch` says when it lifts. Fix the polling or
+  retry loop rather than retrying harder — `rest.go` shows how to tell the two
+  429s apart.
+
+Every REST response carries `X-RateLimit-Limit` / `-Remaining` / `-Reset`
+headers.
+
+## Quotas
+
+| Tier | Rate limit | Price |
+|---|---|---|
+| FREE | 30/min · 100/day | $0 — no card |
+| BASIC | 60/min · 1,000/day | $9.99/mo |
+| PRO | 300/min · 10,000/day | $29.99/mo |
+| ULTRA | 600/min · 500,000/day | $99.99/mo |
+
+The WebSocket feed and the break-point signals need ULTRA; `/usage` reports
+your key's consumption without counting against it.
+
+## Links
+
+[Documentation](https://docs.livetennisapi.com) ·
+[Free API key](https://livetennisapi.com/subscribe/free) ·
+[Discord](https://discord.gg/f8WUZHgDm6) ·
+[GitHub org](https://github.com/livetennisapi)
 
 ## License
 

@@ -34,6 +34,48 @@ func TestDispatchRoutesEachFrameTypeAndIgnoresNoise(t *testing.T) {
 	}
 }
 
+// recorder keeps the decoded frames so tests can assert on wire-shape parsing.
+type recorder struct {
+	scores []ScoreFrame
+	bps    []BreakPointFrame
+}
+
+func (r *recorder) OnScore(f ScoreFrame)                     { r.scores = append(r.scores, f) }
+func (r *recorder) OnBreakPoint(f BreakPointFrame)           { r.bps = append(r.bps, f) }
+func (r *recorder) OnBreakPointResult(BreakPointResultFrame) {}
+
+// The score payload nests under "score" and carries the ULTRA model fields —
+// exactly what the server sends (live as of 2026-08-07).
+func TestScoreFrameParsesNestedPayloadWithModelFields(t *testing.T) {
+	rec := &recorder{}
+	dispatch([]byte(`{"type":"score","match_id":42,"score":{"sets":[1,0],"games":[[6,2],[4,0]],"points":["40","30"],"server":1,"is_tiebreak":false,"timestamp":"2026-08-07T12:00:00Z","win_probability_p1":0.71,"danger":0.22}}`), rec)
+	if len(rec.scores) != 1 {
+		t.Fatalf("expected 1 score frame, got %d", len(rec.scores))
+	}
+	f := rec.scores[0]
+	if f.MatchID != 42 || !reflect.DeepEqual(f.Score.Sets, []int{1, 0}) || f.Score.Server != 1 {
+		t.Fatalf("nested score payload not decoded: %+v", f)
+	}
+	if f.Score.WinProbP1 == nil || *f.Score.WinProbP1 != 0.71 || f.Score.Danger == nil {
+		t.Fatalf("model fields must ride on the frame: %+v", f.Score)
+	}
+}
+
+// Regression: "set" and "game" arrive as strings ("1-0", "4-5"). Typing them
+// as ints made json.Unmarshal fail, which silently dropped every break_point
+// frame in dispatch.
+func TestBreakPointFrameParsesStringSetAndGame(t *testing.T) {
+	rec := &recorder{}
+	dispatch([]byte(`{"type":"break_point","match_id":7,"server":1,"returner":2,"break_points":2,"set":"1-0","game":"4-5","point":"30-40","win_probability_p1":0.41,"prob_swing":0.18,"server_side_favoured":false,"ts":"2026-08-07T12:00:00Z"}`), rec)
+	if len(rec.bps) != 1 {
+		t.Fatalf("break_point frame was dropped instead of routed")
+	}
+	f := rec.bps[0]
+	if f.Set != "1-0" || f.Game != "4-5" || f.BreakPoints != 2 {
+		t.Fatalf("break_point fields not decoded: %+v", f)
+	}
+}
+
 func TestDecideBacksReturnerWhenServerNotFavoured(t *testing.T) {
 	order := NewStrategy().decide(BreakPointFrame{
 		MatchID: 5, Returner: 2, BreakPoints: 2, ServerSideFavoured: false,
